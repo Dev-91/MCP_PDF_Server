@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>PDF 업로드 및 폴더 트리</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .tree-ul { list-style-type: none; padding-left: 18px; margin: 0; }
+        .tree-li { margin: 2px 0; }
+        .folder-row, .file-row {
+            display: flex; align-items: center; padding: 4px 6px; border-radius: 5px;
+            transition: background 0.15s;
+        }
+        .folder-row:hover, .file-row:hover { background: #f3f4f6; }
+        .folder-toggle {
+            cursor: pointer; font-size: 13px; margin-right: 4px; color: #2563eb;
+            width: 18px; display: inline-block; text-align: center;
+        }
+        .folder-label { font-weight: 600; color: #2563eb; cursor: pointer; margin-left: 2px; }
+        .file-label { color: #374151; margin-left: 6px; }
+        .hidden {
+            display: none !important;
+        }
+        .logo-light { display: inline; }
+        .logo-dark { display: none; }
+        body.dark-mode .logo-light { display: none !important; }
+        body.dark-mode .logo-dark { display: inline !important; }
+        body.dark-mode .main-title { color: #fff !important; }
+        .darkmode-moon { display: inline; }
+        .darkmode-sun { display: none; }
+        body.dark-mode .darkmode-moon { display: none !important; }
+        body.dark-mode .darkmode-sun { display: inline !important; color: #fff !important; }
+        .selected-info { color: #222; }
+        body.dark-mode .selected-info { color: #fff !important; }
+    </style>
+</head>
+<body class="dark-mode">
+    <div class="container">
+        <h1 class="main-title" style="text-align:center; font-size:2.2rem; font-weight:900; margin-bottom:28px; color:#222; letter-spacing:1px; display:flex; align-items:center; justify-content:center; gap:18px;">
+            <img src="/static/DEV91-Black-Clear.webp" alt="로고" class="logo-light" style="height:4.4rem; vertical-align:middle;">
+            <img src="/static/DEV91-White-Clear.webp" alt="로고" class="logo-dark" style="height:4.4rem; vertical-align:middle; display:none;">
+            MCP PDF Manager
+            <button id="darkmode-btn" title="다크모드 전환" style="background:none; border:none; cursor:pointer; font-size:24px; color:#374151; margin-left:18px;">
+                <i class="fa-solid fa-moon darkmode-moon"></i>
+                <i class="fa-solid fa-sun darkmode-sun" style="display:none;"></i>
+            </button>
+        </h1>
+        <h2 style="font-size:1.25rem;"><i class="fa-solid fa-upload"></i> PDF 업로드</h2>
+        <form id="uploadForm" enctype="multipart/form-data" method="post" action="/upload">
+            <input type="file" name="file" id="fileInput" accept=".pdf" required style="display:none;">
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px; justify-content: space-between;">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button type="button" id="fileSelectBtn" class="file-btn" title="파일 선택">파일 선택</button>
+                    <button type="submit" class="upload-btn" title="업로드">업로드</button>
+                    <button type="button" id="createFolderBtn" class="folder-btn" title="폴더 생성">폴더 생성</button>
+                    <button type="button" id="deleteFolderBtn" class="folder-btn" title="삭제" disabled>삭제</button>
+                    <input type="text" id="newFolderName" placeholder="새 폴더 이름" style="display:none; margin-left:8px; min-width:120px;">
+                    <button type="button" id="confirmCreateFolder" class="folder-btn" style="display:none;">생성</button>
+                </div>
+            </div>
+            <input type="hidden" name="target_folder" id="target_folder" value="">
+            <div>
+                <span id="selected-file" class="selected-info" style="display:block; margin:8px 0 0 0;">선택된 파일: 없음</span>
+                <span id="selected-folder" class="selected-info" style="display:block; margin:8px 0 0 0;"></span>
+            </div>
+        </form>
+
+        <h3 style="margin-top:32px;"><i class="fa-solid fa-folder-tree"></i> PDF 폴더 트리</h3>
+        <div id="tree"></div>
+    </div>
+    <script>
+    let selectedItemPath = "";
+    let selectedItemType = ""; // "folder" or "file"
+
+    function getFileIcon(filename) {
+        const ext = filename.split('.').pop().toLowerCase();
+        if (ext === 'pdf') return '<i class="fa-solid fa-file-pdf" style="color:#e11d48"></i>';
+        if (["jpg","jpeg","png","gif","bmp","webp"].includes(ext)) return '<i class="fa-solid fa-file-image" style="color:#f59e42"></i>';
+        if (["doc","docx"].includes(ext)) return '<i class="fa-solid fa-file-word" style="color:#2563eb"></i>';
+        if (["xls","xlsx","csv"].includes(ext)) return '<i class="fa-solid fa-file-excel" style="color:#10b981"></i>';
+        if (["ppt","pptx"].includes(ext)) return '<i class="fa-solid fa-file-powerpoint" style="color:#f59e42"></i>';
+        if (["txt","md"].includes(ext)) return '<i class="fa-solid fa-file-lines" style="color:#6b7280"></i>';
+        if (["zip","tar","gz","rar","7z"].includes(ext)) return '<i class="fa-solid fa-file-zipper" style="color:#a16207"></i>';
+        return '<i class="fa-solid fa-file" style="color:#6b7280"></i>';
+    }
+    function selectFolderAndToggle(path, folderId, elem) {
+        selectFolder(path, elem);
+        toggleFolder(folderId, elem.parentElement.querySelector('.folder-toggle'));
+    }
+    function renderTree(node, parentPath = "") {
+        if (!node) return '';
+        let html = '';
+        const currentPath = parentPath ? parentPath + "/" + node.name : node.name;
+        if (node.type === 'folder') {
+            const folderId = 'folder-' + Math.random().toString(36).substr(2, 9);
+            html += `<li class="tree-li">
+                <div class="folder-row" data-folder-id="${folderId}" data-folder-path="${currentPath}">
+                    <span class="folder-toggle" onclick="toggleFolder('${folderId}', this)">&#9654;</span>
+                    <i class="fa-solid fa-folder"></i>
+                    <span class="folder-label" onclick="selectFolderAndToggle('${currentPath}', '${folderId}', this)">${node.name}</span>
+                </div>`;
+            if (node.children && node.children.length > 0) {
+                html += `<ul class="tree-ul hidden" id="${folderId}">`;
+                for (const child of node.children) {
+                    html += renderTree(child, currentPath);
+                }
+                html += `</ul>`;
+            }
+            html += `</li>`;
+        } else if (node.type === 'file') {
+            html += `<li class="tree-li">
+                <div class="file-row">
+                    ${getFileIcon(node.name)}
+                    <span class="file-label" onclick="selectFile('${currentPath}', this)">${node.name}</span>
+                    <a class="download-btn" href="/download/${encodeURIComponent(node.relpath)}" target="_blank" title="다운로드">
+                        <i class="fa-solid fa-download"></i>
+                    </a>
+                </div>
+            </li>`;
+        }
+        return html;
+    }
+    function selectFolder(path, elem) {
+        selectedItemPath = path;
+        selectedItemType = "folder";
+        document.getElementById('target_folder').value = path;
+        document.getElementById('selected-folder').innerText = `선택된 경로: ${path}`;
+        document.querySelectorAll('.folder-label').forEach(e => e.style.background = '');
+        document.querySelectorAll('.file-label').forEach(e => e.style.background = '');
+        // 다크모드 감지
+        if (document.body.classList.contains('dark-mode')) {
+            elem.style.background = '#374151'; // 어두운 Slate
+        } else {
+            elem.style.background = '#dbeafe'; // 밝은 블루
+        }
+        // 삭제 버튼 활성화 (최상위 datasheets는 삭제 불가)
+        const deleteBtn = document.getElementById('deleteFolderBtn');
+        if (path && path !== "datasheets") {
+            deleteBtn.disabled = false;
+        } else {
+            deleteBtn.disabled = true;
+        }
+    }
+    function selectFile(path, elem) {
+        selectedItemPath = path;
+        selectedItemType = "file";
+        document.getElementById('target_folder').value = ""; // 파일 선택 시 업로드 폴더는 비움
+        document.getElementById('selected-folder').innerText = `선택된 파일: ${path}`;
+        document.querySelectorAll('.folder-label').forEach(e => e.style.background = '');
+        document.querySelectorAll('.file-label').forEach(e => e.style.background = '');
+        if (document.body.classList.contains('dark-mode')) {
+            elem.style.background = '#374151';
+        } else {
+            elem.style.background = '#dbeafe';
+        }
+        document.getElementById('deleteFolderBtn').disabled = false;
+    }
+    function toggleFolder(id, elem) {
+        const ul = document.getElementById(id);
+        if (ul) {
+            ul.classList.toggle('hidden');
+            // 아이콘 변경 (▶ ▼)
+            let icon = elem;
+            if (!icon.classList.contains('folder-toggle')) {
+                icon = elem.parentElement.querySelector('.folder-toggle');
+            }
+            if (ul.classList.contains('hidden')) {
+                icon.innerHTML = '&#9654;'; // ▶
+            } else {
+                icon.innerHTML = '&#9660;'; // ▼
+            }
+        }
+    }
+    document.getElementById('deleteFolderBtn').onclick = async function() {
+        if (!selectedItemPath || selectedItemPath === "datasheets") {
+            alert("삭제할 항목을 선택하세요.");
+            return;
+        }
+        let msg = selectedItemType === "file" ? "정말로 파일을 삭제하시겠습니까?" : "정말로 폴더를 삭제하시겠습니까?\n(하위 모든 파일/폴더도 함께 삭제됩니다)";
+        if (!confirm(`${msg}\n\n경로: ${selectedItemPath}`)) {
+            return;
+        }
+        const res = await fetch('/delete-item', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ path: selectedItemPath })
+        });
+        if (res.ok) {
+            // 트리 새로고침
+            fetch('/api/files')
+                .then(res => res.json())
+                .then(data => {
+                    const treeHtml = `<ul class="tree-ul">${renderTree(data)}</ul>`;
+                    document.getElementById('tree').innerHTML = treeHtml;
+                    // 최상위 폴더만 자동으로 펼치기
+                    const firstToggle = document.querySelector('.folder-toggle');
+                    const firstUl = document.getElementById(
+                        firstToggle?.parentElement?.getAttribute('data-folder-id')
+                    );
+                    if (firstToggle && firstUl) {
+                        firstUl.classList.remove('hidden');
+                        firstToggle.innerHTML = '&#9660;';
+                    }
+                    document.getElementById('selected-folder').innerText = '선택된 폴더: 없음';
+                    document.getElementById('deleteFolderBtn').disabled = true;
+                    selectedItemPath = "";
+                    selectedItemType = "";
+                });
+        } else {
+            const data = await res.json();
+            alert(data.error || '삭제 실패');
+        }
+    };
+    fetch('/api/files')
+        .then(res => res.json())
+        .then(data => {
+            // 트리 전체를 접힌 상태로 렌더링
+            const treeHtml = `<ul class="tree-ul">${renderTree(data)}</ul>`;
+            document.getElementById('tree').innerHTML = treeHtml;
+            // 최상위 폴더만 자동으로 펼치기
+            const firstToggle = document.querySelector('.folder-toggle');
+            const firstUl = document.getElementById(
+                firstToggle?.parentElement?.getAttribute('data-folder-id')
+            );
+            if (firstToggle && firstUl) {
+                firstUl.classList.remove('hidden');
+                firstToggle.innerHTML = '&#9660;';
+            }
+            // 폴더 선택 전 기본 안내
+            document.getElementById('selected-folder').innerText = '선택된 폴더: 없음';
+        });
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('darkmode-btn').onclick = function() {
+            document.body.classList.toggle('dark-mode');
+            if(document.body.classList.contains('dark-mode')) {
+                localStorage.setItem('darkmode', '1');
+            } else {
+                localStorage.removeItem('darkmode');
+            }
+        };
+        if(localStorage.getItem('darkmode')) {
+            document.body.classList.add('dark-mode');
+        }
+        document.getElementById('fileSelectBtn').onclick = function(e) {
+            e.preventDefault();
+            document.getElementById('fileInput').click();
+        };
+        document.getElementById('fileInput').onchange = function() {
+            const file = this.files[0];
+            document.getElementById('selected-file').innerText = file ? `선택된 파일: ${file.name}` : '선택된 파일: 없음';
+        };
+        document.getElementById('createFolderBtn').onclick = function() {
+            document.getElementById('newFolderName').style.display = 'inline-block';
+            document.getElementById('confirmCreateFolder').style.display = 'inline-block';
+            document.getElementById('newFolderName').focus();
+        };
+        document.getElementById('confirmCreateFolder').onclick = async function() {
+            const folderName = document.getElementById('newFolderName').value.trim();
+            const targetPath = document.getElementById('target_folder').value;
+            if (!folderName) {
+                alert('폴더 이름을 입력하세요.');
+                return;
+            }
+            const res = await fetch('/create-folder', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ parent: targetPath, name: folderName })
+            });
+            if (res.ok) {
+                document.getElementById('newFolderName').value = '';
+                document.getElementById('newFolderName').style.display = 'none';
+                document.getElementById('confirmCreateFolder').style.display = 'none';
+                // 트리 새로고침
+                fetch('/api/files')
+                    .then(res => res.json())
+                    .then(data => {
+                        const treeHtml = `<ul class="tree-ul">${renderTree(data)}</ul>`;
+                        document.getElementById('tree').innerHTML = treeHtml;
+                        // 최상위 폴더만 자동으로 펼치기
+                        const firstToggle = document.querySelector('.folder-toggle');
+                        const firstUl = document.getElementById(
+                            firstToggle?.parentElement?.getAttribute('data-folder-id')
+                        );
+                        if (firstToggle && firstUl) {
+                            firstUl.classList.remove('hidden');
+                            firstToggle.innerHTML = '&#9660;';
+                        }
+                        document.getElementById('selected-folder').innerText = '선택된 폴더: 없음';
+                    });
+            } else {
+                alert('폴더 생성 실패');
+            }
+        };
+        document.getElementById('uploadForm').onsubmit = function(e) {
+            const targetFolder = document.getElementById('target_folder').value;
+            if (!targetFolder) {
+                alert('업로드할 폴더를 선택하세요.');
+                e.preventDefault();
+                return false;
+            }
+        };
+    });
+    </script>
+</body>
+</html>
