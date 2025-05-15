@@ -1,0 +1,15 @@
+MCP PDF Server
+Copyright 2025 Dev91
+
+This product includes software developed by Dev91.
+
+Licensed under the Apache License, Version 2.0 (the "License").
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+This product may include third-party software, which is separately licensed as described below:
+
+- This project uses PyPDF2 (https://github.com/py-pdf/pypdf), licensed under the BSD License.
+
+For more details, see the LICENSE file. 
