@@ -1,0 +1,27 @@
+services:
+  mcp-pdf-server:
+    build: .
+    image: mcp-pdf-server:1.0.0
+    container_name: mcp-pdf-server
+    ports:
+      - "5050:5050"
+      - "5080:5080"
+    volumes:
+      - ./mcp_server:/app/mcp_server
+      # 아래 경로를 사용자의 실제 데이터시트 폴더 경로로 변경하세요.
+      # 예시: /path/to/your/datasheets:/app/datasheets
+      - /path/to/your/datasheets:/app/datasheets
+    restart: unless-stopped
+    networks:
+      - mcp-network
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+      - FASTMCP_PORT=5050
+      - FASTMCP_TRANSPORT=sse
+      - FASTMCP_DEBUG=true
+      - FASTMCP_HOST=0.0.0.0
+    command: ["sh", "-c", "python3 mcp_server/mcp_pdf_server.py & uvicorn manager_server.main:app --host 0.0.0.0 --port 5080"]
+networks:
+  mcp-network:
+    driver: bridge
